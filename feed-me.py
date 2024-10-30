@@ -1,3 +1,6 @@
+# RSS Feed Parser for Boing Boing
+# Created: October 2024
+
 import requests
 import time
 import xml.etree.ElementTree as ET
