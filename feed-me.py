@@ -1,6 +1,3 @@
-# RSS Feed Parser for Boing Boing
-# Created: October 2024
-
 import requests
 import time
 import xml.etree.ElementTree as ET
@@ -12,6 +9,7 @@ from html import unescape
 import os
 
 def save_webpage_to_file(url, filename):
+    print(f"Attempting to download from {url}")
     try:
         unique_url = f"{url}&t={int(time.time())}"
         headers = {
@@ -20,18 +18,21 @@ def save_webpage_to_file(url, filename):
             'Pragma': 'no-cache'
         }
         response = requests.get(unique_url, headers=headers)
+        response.raise_for_status()
 
-        if response.status_code == 200:
-            with open(filename, 'w', encoding='utf-8') as file:
-                file.write(response.text)
-            print(f"Content saved to {filename}")
-        else:
-            print(f"Failed to retrieve the webpage: Status code {response.status_code}")
+        with open(filename, 'w', encoding='utf-8') as file:
+            file.write(response.text)
+        print(f"Successfully saved content to {filename}")
     except requests.RequestException as e:
-        print(f"An error occurred: {e}")
+        print(f"Error downloading webpage: {e}")
+        raise
 
 def parse_rss_date(date_str):
-    return datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+    try:
+        return datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+    except ValueError as e:
+        print(f"Error parsing date {date_str}: {e}")
+        raise
 
 def is_within_time_range(post_date):
     pacific = pytz.timezone('US/Pacific')
@@ -42,6 +43,8 @@ def is_within_time_range(post_date):
     return yesterday_12 <= post_date_pt <= today_12
 
 def remove_unwanted_text(content):
+    if not content:
+        return ""
     content = re.sub(r'<p>The post .+? appeared first on .+?\.?</p>', '', content, flags=re.DOTALL | re.IGNORECASE)
     content = re.sub(r'The post .+? appeared first on .+?\.?', '', content, flags=re.DOTALL | re.IGNORECASE)
     content = re.sub(r'<p>This entry was posted in .+? and tagged .+?\.?</p>', '', content, flags=re.DOTALL | re.IGNORECASE)
@@ -50,52 +53,85 @@ def remove_unwanted_text(content):
     return content.strip()
 
 def process_feed(filename):
-    with open(filename, 'r', encoding='utf-8') as file:
-        content = file.read()
+    print(f"Processing feed from {filename}")
+    try:
+        with open(filename, 'r', encoding='utf-8') as file:
+            content = file.read()
 
-    content = remove_unwanted_text(content)
+        content = remove_unwanted_text(content)
+        root = ET.fromstring(content)
+        channel = root.find('channel')
+        
+        if channel is None:
+            print("Error: Could not find channel element in RSS feed")
+            return
 
-    root = ET.fromstring(content)
-    channel = root.find('channel')
+        initial_item_count = len(channel.findall('item'))
+        print(f"Found {initial_item_count} initial items")
 
-    for item in channel.findall('item'):
-        pub_date = item.find('pubDate').text
-        post_date = parse_rss_date(pub_date)
-        if not is_within_time_range(post_date):
+        items_to_remove = []
+        for item in channel.findall('item'):
+            pub_date = item.find('pubDate')
+            if pub_date is None or not pub_date.text:
+                items_to_remove.append(item)
+                continue
+                
+            try:
+                post_date = parse_rss_date(pub_date.text)
+                if not is_within_time_range(post_date):
+                    items_to_remove.append(item)
+            except ValueError:
+                items_to_remove.append(item)
+
+        for item in items_to_remove:
             channel.remove(item)
 
-    items_to_remove = []
-    for item in channel.findall('item'):
-        creator = item.find('{http://purl.org/dc/elements/1.1/}creator')
-        if creator is not None and creator.text == "Boing Boing's Shop":
-            items_to_remove.append(item)
-    for item in items_to_remove:
-        channel.remove(item)
+        print(f"Removed {len(items_to_remove)} posts outside time range")
 
-    print(f"Removed {len(items_to_remove)} posts authored by Boing Boing's Shop.")
+        shop_posts = []
+        for item in channel.findall('item'):
+            creator = item.find('{http://purl.org/dc/elements/1.1/}creator')
+            if creator is not None and creator.text == "Boing Boing's Shop":
+                shop_posts.append(item)
+        
+        for item in shop_posts:
+            channel.remove(item)
 
-    for item in channel.findall('item'):
-        content = item.find('{http://purl.org/rss/1.0/modules/content/}encoded')
-        if content is not None:
-            content.text = remove_unwanted_text(content.text)
-        description = item.find('description')
-        if description is not None:
-            description.text = remove_unwanted_text(description.text)
+        print(f"Removed {len(shop_posts)} shop posts")
 
-    tree = ET.ElementTree(root)
-    tree.write(filename, encoding='UTF-8', xml_declaration=True)
+        for item in channel.findall('item'):
+            content = item.find('{http://purl.org/rss/1.0/modules/content/}encoded')
+            if content is not None:
+                content.text = remove_unwanted_text(content.text)
+            description = item.find('description')
+            if description is not None:
+                description.text = remove_unwanted_text(description.text)
+
+        tree = ET.ElementTree(root)
+        tree.write(filename, encoding='UTF-8', xml_declaration=True)
+        print(f"Successfully processed feed. Final item count: {len(channel.findall('item'))}")
+
+    except Exception as e:
+        print(f"Error processing feed: {e}")
+        raise
 
 def format_date(date_str):
-    dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
-    pacific = pytz.timezone('US/Pacific')
-    dt_pacific = dt.astimezone(pacific)
-    return dt_pacific.strftime("%-I:%M %p PT %a %b %-d, %Y").replace("AM", "am").replace("PM", "pm")
+    try:
+        dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
+        pacific = pytz.timezone('US/Pacific')
+        dt_pacific = dt.astimezone(pacific)
+        return dt_pacific.strftime("%-I:%M %p PT %a %b %-d, %Y").replace("AM", "am").replace("PM", "pm")
+    except ValueError as e:
+        print(f"Error formatting date {date_str}: {e}")
+        return date_str
 
 def xml_to_webpage(xml_file, html_file):
-    tree = ET.parse(xml_file)
-    root = tree.getroot()
+    print(f"Converting {xml_file} to HTML")
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
 
-    html_content = """
+        html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -118,99 +154,146 @@ def xml_to_webpage(xml_file, html_file):
 <body>
 """
 
-    current_time = datetime.now(pytz.UTC)
-    html_content += f"<p>Generated on: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}</p>"
+        current_time = datetime.now(pytz.UTC)
+        html_content += f"<p>Generated on: {current_time.strftime('%Y-%m-%d %H:%M:%S %Z')}</p>"
 
-    namespaces = {
-        'content': 'http://purl.org/rss/1.0/modules/content/',
-        'dc': 'http://purl.org/dc/elements/1.1/'
-    }
+        namespaces = {
+            'content': 'http://purl.org/rss/1.0/modules/content/',
+            'dc': 'http://purl.org/dc/elements/1.1/'
+        }
 
-    items = root.findall('.//item')
-    for index, item in enumerate(items):
-        html_content += "<article>"
+        items = root.findall('.//item')
+        print(f"Processing {len(items)} items")
 
-        title = item.find('title')
-        if title is not None:
-            html_content += f"<h2>{title.text}</h2>"
+        for index, item in enumerate(items):
+            html_content += "<article>"
 
-        author = item.find('dc:creator', namespaces)
-        if author is None:
-            author = item.find('author')
-        pub_date = item.find('pubDate')
+            title = item.find('title')
+            if title is not None:
+                html_content += f"<h2>{title.text}</h2>"
 
-        if author is not None and author.text and pub_date is not None:
-            formatted_date = format_date(pub_date.text)
-            html_content += f"<h6>{author.text} / {formatted_date}</h6>"
+            author = item.find('dc:creator', namespaces)
+            if author is None:
+                author = item.find('author')
+            pub_date = item.find('pubDate')
 
-        content = item.find('content:encoded', namespaces)
-        if content is not None:
-            content_text = unescape(content.text)
-        else:
-            description = item.find('description')
-            content_text = unescape(description.text) if description is not None else ""
+            if author is not None and author.text and pub_date is not None:
+                formatted_date = format_date(pub_date.text)
+                html_content += f"<h6>{author.text} / {formatted_date}</h6>"
 
-        content_text = remove_unwanted_text(content_text)
-
-        soup = BeautifulSoup(content_text, 'html.parser')
-
-        for p in soup.find_all('p'):
-            if any(phrase in p.text.lower() for phrase in ['the post', 'appeared first on', 'this entry was posted', 'boing boing is published']):
-                p.decompose()
-
-        for img in soup.find_all('img'):
-            caption = img.get('alt', '')
-            src = img.get('src', '')
-
-            # Create figure element
-            figure = soup.new_tag('figure')
-            
-            # Create img tag
-            new_img = soup.new_tag('img', src=src)
-            figure.append(new_img)
-
-            # Add figcaption if there's a caption
-            if caption:
-                figcaption = soup.new_tag('figcaption')
-                figcaption.string = caption
-                figure.append(figcaption)
-
-            # Replace old structure with new figure
-            if img.parent.name == 'a':
-                img.parent.replace_with(figure)
+            content = item.find('content:encoded', namespaces)
+            if content is not None:
+                content_text = unescape(content.text)
             else:
-                img.replace_with(figure)
+                description = item.find('description')
+                content_text = unescape(description.text) if description is not None else ""
 
-        html_content += str(soup)
-        html_content += "</article>"
+            content_text = remove_unwanted_text(content_text)
+            soup = BeautifulSoup(content_text, 'html.parser')
 
-        if index < len(items) - 1:
-            html_content += '<p> </p>'
+            # Remove unwanted paragraphs
+            for p in soup.find_all('p'):
+                if any(phrase in p.text.lower() for phrase in ['the post', 'appeared first on', 'this entry was posted', 'boing boing is published']):
+                    p.decompose()
 
-    html_content += """
+            # Clean up nested figures
+            for figure in soup.find_all('figure'):
+                if figure.find('figure'):
+                    img = figure.find('img')
+                    if img:
+                        figure.replace_with(img)
+
+            # Process all images
+            for img in soup.find_all('img'):
+                # Remove resize parameters from src URLs
+                src = img.get('src', '')
+                src = re.sub(r'\?resize=\d+%2C\d+', '', src)
+                src = re.sub(r'&ssl=1', '', src)
+                
+                # Collect all possible caption sources
+                caption_sources = []
+                if img.get('alt'):
+                    caption_sources.append(img['alt'])
+                if img.get('title'):
+                    caption_sources.append(img['title'])
+                
+                # Check for existing figcaption
+                existing_figcaption = None
+                if img.parent.name == 'figure':
+                    existing_figcaption = img.parent.find('figcaption')
+                    if existing_figcaption:
+                        caption_sources.append(existing_figcaption.get_text())
+
+                # Remove duplicate captions and empty strings
+                captions = list(filter(None, caption_sources))
+                captions = list(dict.fromkeys(captions))  # Remove duplicates while preserving order
+                
+                # Create new figure with caption if we have any caption text
+                if captions:
+                    figure = soup.new_tag('figure')
+                    new_img = soup.new_tag('img', src=src)
+                    figure.append(new_img)
+                    
+                    figcaption = soup.new_tag('figcaption')
+                    figcaption.string = ' | '.join(captions)  # Join multiple captions with separator
+                    figure.append(figcaption)
+                    
+                    # Replace the appropriate element
+                    if img.parent.name == 'figure':
+                        img.parent.replace_with(figure)
+                    elif img.parent.name == 'a':
+                        img.parent.replace_with(figure)
+                    else:
+                        img.replace_with(figure)
+                else:
+                    # If no caption, just clean up the img tag
+                    new_img = soup.new_tag('img', src=src)
+                    img.replace_with(new_img)
+
+            html_content += str(soup)
+            html_content += "</article>"
+
+            if index < len(items) - 1:
+                html_content += '<p> </p>'
+
+        html_content += """
 </body>
 </html>
 """
 
-    with open(html_file, 'w', encoding='utf-8') as f:
-        f.write(html_content)
+        with open(html_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
 
-    print(f"Conversion complete. Web page saved as {html_file}")
+        print(f"Successfully created HTML file: {html_file}")
 
-# Get the path to the desktop
-desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+    except Exception as e:
+        print(f"Error converting to HTML: {e}")
+        raise
 
-# Define file paths
-xml_file = os.path.join(desktop, 'feed.txt')
-html_file = os.path.join(desktop, 'rss_webpage.html')
-
-# Main execution
-url = "https://boingboing.net/feed?_show_full_content=yes"
-
-save_webpage_to_file(url, xml_file)
-process_feed(xml_file)
-xml_to_webpage(xml_file, html_file)
-
-# Print the locations where files are saved
-print(f"XML file saved to: {xml_file}")
-print(f"HTML file saved to: {html_file}")
+if __name__ == "__main__":
+    try:
+        print("Starting RSS feed parser...")
+        
+        desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+        xml_file = os.path.join(desktop, 'feed.txt')
+        html_file = os.path.join(desktop, 'rss_webpage.html')
+        
+        print(f"Will save files to:")
+        print(f"XML: {xml_file}")
+        print(f"HTML: {html_file}")
+        
+        url = "https://boingboing.net/feed?_show_full_content=yes"
+        
+        print("Downloading RSS feed...")
+        save_webpage_to_file(url, xml_file)
+        
+        print("Processing feed...")
+        process_feed(xml_file)
+        
+        print("Converting to HTML...")
+        xml_to_webpage(xml_file, html_file)
+        
+        print("Done!")
+        
+    except Exception as e:
+        print(f"Fatal error: {e}")
