@@ -192,6 +192,15 @@ def xml_to_webpage(xml_file, html_file):
             content_text = remove_unwanted_text(content_text)
             soup = BeautifulSoup(content_text, 'html.parser')
 
+            # Add this before other soup modifications
+            for text in soup.find_all(string=lambda text: isinstance(text, str) and ' below' in text.lower()):
+                # Check if this text node comes right after a link
+                prev_element = text.previous_sibling
+                if prev_element and prev_element.name == 'a':
+                    # Remove the word "below" but keep the rest of the text
+                    new_text = text.replace(' below', '')
+                    text.replace_with(new_text)
+
             # Remove unwanted paragraphs
             for p in soup.find_all('p'):
                 if any(phrase in p.text.lower() for phrase in ['the post', 'appeared first on', 'this entry was posted', 'boing boing is published']):
