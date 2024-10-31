@@ -149,6 +149,7 @@ def xml_to_webpage(xml_file, html_file):
         figcaption { color: #666; font-style: italic; text-align: center; margin-top: 0.5em; font-size: 0.9em; }
         .divider { border-top: 2px solid #ccc; margin: 40px 0; }
         .article-content { margin-top: 20px; }
+        a { word-break: break-all; }
     </style>
 </head>
 <body>
@@ -202,6 +203,21 @@ def xml_to_webpage(xml_file, html_file):
                     img = figure.find('img')
                     if img:
                         figure.replace_with(img)
+
+            # Process YouTube embeds
+            for iframe in soup.find_all('iframe', class_='youtube-player'):
+                src = iframe.get('src', '')
+                video_id = re.search(r'embed/([^?]+)', src)
+                if video_id:
+                    video_id = video_id.group(1)
+                    # Find the parent figure element and replace it
+                    figure = iframe.find_parent('figure')
+                    if figure:
+                        youtube_url = f'https://youtu.be/{video_id}\n'
+                        figure.replace_with(youtube_url)
+                    else:
+                        # If no parent figure, replace just the iframe
+                        iframe.replace_with(f'https://youtu.be/{video_id}\n')
 
             # Process all images
             for img in soup.find_all('img'):
