@@ -193,6 +193,14 @@ def xml_to_webpage(xml_file, html_file):
             soup = BeautifulSoup(content_text, 'html.parser')
 
             # Add this before other soup modifications
+            # Remove "Previously" blocks
+            for p in soup.find_all('p'):
+                if p.find('strong') and 'Previously:' in p.get_text():
+                    p.decompose()
+
+            # Rest of the soup modifications...
+
+            # Add this before other soup modifications
             for text in soup.find_all(string=lambda text: isinstance(text, str) and ' below' in text.lower()):
                 # Check if this text node comes right after a link
                 prev_element = text.previous_sibling
