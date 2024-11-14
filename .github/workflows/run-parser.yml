@@ -22,11 +22,14 @@ jobs:
           
       - name: Run parser
         run: |
-          mkdir -p ~/Desktop
+          # Create output directory in the workspace instead of Desktop
+          mkdir -p output
+          # Modify the script to use the current directory
+          sed -i 's|os.path.join(os.path.expanduser("~"), "Desktop")|"output"|g' feed-me.py
           python feed-me.py
           
       - name: Upload HTML
         uses: actions/upload-artifact@v4
         with:
           name: rss_webpage
-          path: ~/Desktop/rss_webpage.html
+          path: output/rss_webpage.html
