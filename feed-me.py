@@ -192,11 +192,19 @@ def xml_to_webpage(xml_file, html_file):
             content_text = remove_unwanted_text(content_text)
             soup = BeautifulSoup(content_text, 'html.parser')
 
-            # Add this before other soup modifications
             # Remove "Previously" blocks
             for p in soup.find_all('p'):
                 if p.find('strong') and 'Previously:' in p.get_text():
                     p.decompose()
+
+            # Remove red-bordered boxes
+            for div in soup.find_all('div', class_='red-box'):
+                div.decompose()
+
+            # Also check for any divs with inline style containing red border
+            for div in soup.find_all('div', style=True):
+                if 'border' in div['style'].lower() and 'red' in div['style'].lower():
+                    div.decompose()
 
             # Rest of the soup modifications...
 
