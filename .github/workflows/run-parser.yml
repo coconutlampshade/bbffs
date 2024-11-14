@@ -1,0 +1,32 @@
+name: Run Feed Parser
+
+on:
+  workflow_dispatch:  # Adds manual trigger button
+
+jobs:
+  run-parser:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4 pytz
+          
+      - name: Run parser
+        run: |
+          mkdir -p ~/Desktop
+          python feed-me.py
+          
+      - name: Upload HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: rss_webpage
+          path: ~/Desktop/rss_webpage.html
