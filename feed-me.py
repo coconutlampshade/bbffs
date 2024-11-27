@@ -260,7 +260,7 @@ def xml_to_webpage(xml_file, html_file):
                 
                 # Check for existing figcaption
                 existing_figcaption = None
-                if img.parent.name == 'figure':
+                if img.parent and img.parent.name == 'figure':
                     existing_figcaption = img.parent.find('figcaption')
                     if existing_figcaption:
                         caption_sources.append(existing_figcaption.get_text())
@@ -280,16 +280,20 @@ def xml_to_webpage(xml_file, html_file):
                     figure.append(figcaption)
                     
                     # Replace the appropriate element
-                    if img.parent.name == 'figure':
-                        img.parent.replace_with(figure)
-                    elif img.parent.name == 'a':
-                        img.parent.replace_with(figure)
+                    if img.parent and img.parent.name == 'figure':
+                        if img.parent.parent:  # Make sure the figure has a parent
+                            img.parent.replace_with(figure)
+                    elif img.parent and img.parent.name == 'a':
+                        if img.parent.parent:  # Make sure the link has a parent
+                            img.parent.replace_with(figure)
                     else:
-                        img.replace_with(figure)
+                        if img.parent:  # Make sure the img has a parent
+                            img.replace_with(figure)
                 else:
                     # If no caption, just clean up the img tag
                     new_img = soup.new_tag('img', src=src)
-                    img.replace_with(new_img)
+                    if img.parent:  # Make sure the img has a parent
+                        img.replace_with(new_img)
 
             html_content += str(soup)
             html_content += "</article>"
