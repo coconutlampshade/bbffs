@@ -192,6 +192,28 @@ def xml_to_webpage(xml_file, html_file):
             content_text = remove_unwanted_text(content_text)
             soup = BeautifulSoup(content_text, 'html.parser')
 
+            # Collect Instagram URLs and replace embeds
+            instagram_urls = set()  # Use a set to prevent duplicates
+            
+            # Handle regular Instagram links
+            for link in soup.find_all('a', href=re.compile(r'https?://(?:www\.)?instagram\.com/p/[^/]+/?')):
+                # Normalize URL by removing query parameters and ensuring consistent format
+                clean_url = link['href'].split('?')[0].replace('/reel/', '/p/')
+                instagram_urls.add(clean_url)
+
+            # Handle Instagram embeds
+            for blockquote in soup.find_all('blockquote', class_='instagram-media'):
+                if 'data-instgrm-permalink' in blockquote.attrs:
+                    # Normalize URL by removing query parameters and ensuring consistent format
+                    clean_url = blockquote['data-instgrm-permalink'].split('?')[0].replace('/reel/', '/p/')
+                    instagram_urls.add(clean_url)
+                    # Find the parent figure and replace it
+                    figure = blockquote.find_parent('figure')
+                    if figure:
+                        figure.decompose()
+                    else:
+                        blockquote.decompose()
+
             # Remove "Previously" blocks
             for p in soup.find_all('p'):
                 if p.find('strong') and 'Previously:' in p.get_text():
@@ -246,10 +268,13 @@ def xml_to_webpage(xml_file, html_file):
 
             # Process all images
             for img in soup.find_all('img'):
-                # Remove resize parameters from src URLs
+                # Clean up the src URL
                 src = img.get('src', '')
-                src = re.sub(r'\?resize=\d+%2C\d+', '', src)
-                src = re.sub(r'&ssl=1', '', src)
+                src = re.sub(r'\?fit=\d+%2C\d+', '', src)  # Remove fit parameters
+                src = re.sub(r'&ssl=1', '', src)  # Remove SSL parameter
+                src = src.replace('%E2%80%AF', ' ')  # Replace encoded spaces
+                src = src.replace('%2C', ',')  # Replace encoded commas
+                src = src.replace('%20', ' ')  # Replace standard encoded spaces
                 
                 # Collect all possible caption sources
                 caption_sources = []
@@ -281,19 +306,18 @@ def xml_to_webpage(xml_file, html_file):
                     
                     # Replace the appropriate element
                     if img.parent and img.parent.name == 'figure':
-                        if img.parent.parent:  # Make sure the figure has a parent
-                            img.parent.replace_with(figure)
-                    elif img.parent and img.parent.name == 'a':
-                        if img.parent.parent:  # Make sure the link has a parent
-                            img.parent.replace_with(figure)
+                        img.parent.replace_with(figure)
                     else:
-                        if img.parent:  # Make sure the img has a parent
-                            img.replace_with(figure)
+                        img.replace_with(figure)
                 else:
                     # If no caption, just clean up the img tag
                     new_img = soup.new_tag('img', src=src)
-                    if img.parent:  # Make sure the img has a parent
-                        img.replace_with(new_img)
+                    img.replace_with(new_img)
+
+            # Add Instagram URLs at the end if any were found
+            if instagram_urls:
+                for url in sorted(instagram_urls):  # Sort for consistent order
+                    html_content += f"\n<p>{url}</p>"
 
             html_content += str(soup)
             html_content += "</article>"
