@@ -7,6 +7,7 @@ import re
 from bs4 import BeautifulSoup
 from html import unescape
 import os
+from urllib.parse import urlparse, quote
 
 def save_webpage_to_file(url, filename):
     print(f"Attempting to download from {url}")
@@ -270,17 +271,23 @@ def xml_to_webpage(xml_file, html_file):
             for img in soup.find_all('img'):
                 # Clean up the src URL
                 src = img.get('src', '')
-                src = re.sub(r'\?fit=\d+%2C\d+', '', src)  # Remove fit parameters
-                src = re.sub(r'&ssl=1', '', src)  # Remove SSL parameter
-                src = src.replace('%E2%80%AF', ' ')  # Replace encoded spaces
-                src = src.replace('%2C', ',')  # Replace encoded commas
-                src = src.replace('%20', ' ')  # Replace standard encoded spaces
                 
-                # If image is inside a link, get the parent link's title
-                if img.parent and img.parent.name == 'a':
-                    if img.parent.get('title'):
-                        img['title'] = img.parent.get('title')
-                    img.parent.replace_with(img)
+                # Parse the URL properly
+                parsed = urlparse(src)
+                path = parsed.path
+                
+                # Encode the path portion of the URL, preserving the domain
+                encoded_path = quote(path)
+                
+                # Reconstruct the URL
+                src = f"{parsed.scheme}://{parsed.netloc}{encoded_path}"
+                
+                # Remove WordPress parameters
+                src = re.sub(r'\?fit=\d+%2C\d+', '', src)
+                src = re.sub(r'&ssl=1', '', src)
+                
+                # Update the image source
+                img['src'] = src
 
                 # Collect all possible caption sources
                 caption_sources = []
