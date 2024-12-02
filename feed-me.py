@@ -276,6 +276,12 @@ def xml_to_webpage(xml_file, html_file):
                 src = src.replace('%2C', ',')  # Replace encoded commas
                 src = src.replace('%20', ' ')  # Replace standard encoded spaces
                 
+                # If image is inside a link, get the parent link's title
+                if img.parent and img.parent.name == 'a':
+                    if img.parent.get('title'):
+                        img['title'] = img.parent.get('title')
+                    img.parent.replace_with(img)
+
                 # Collect all possible caption sources
                 caption_sources = []
                 if img.get('alt'):
